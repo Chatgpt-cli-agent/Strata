@@ -268,8 +268,7 @@ return {summary:result.summary??'Deleted',removed:result.plan?.gb??null};}
   return Math.trunc(Math.max(300,Math.min(ceiling,Math.max(ready,sized))));
  }
  function buildConfig(args,config){
-  const isOwn=ownEngine(config);
-  const vision=isOwn?undefined:runtimeVision(config,args.vision);
+  const vision=runtimeVision(config,args.vision);
   const visionPreferences=args.vision!==undefined?{ui_vision_enabled:args.vision!=='no',ui_vision_device:args.vision==='no'?config.ui_vision_device??'yes':args.vision}:{};
   /* The engine options the person set by hand (user_args, and what they wrote into "args" since the last write) go over everything the app generates, and an
      explicit GPU-memory reserve (the Expert setting, user_args, a value they wrote) is never replaced by the safety default (#3215 #3270 #3216). */
@@ -295,13 +294,18 @@ return {summary:result.summary??'Deleted',removed:result.plan?.gb??null};}
   const parallelChoice=packaged&&!ownEngine(config)?chooseParallel({config:cfg,values:args.values??{},hardware:snapshot.hardware?.gpus?.length?snapshot.hardware:{gpus:hardwareProbe()??[]}}):null;
   let parallelNote=null,dsNote='';
   /* The agent asks for long answers (a thinking model can use most of the window): let the engine clamp the output to what is left of the context instead of refusing the request. */
-  if(packaged&&cfg.fit_max_tokens===undefined)cfg.fit_max_tokens=true;
+  if(packaged&&!ownEngine(config)&&cfg.fit_max_tokens===undefined)cfg.fit_max_tokens=true;
   if(parallelChoice){const applied=applyParallel(cfg,parallelChoice);for(const k of Object.keys(cfg))if(!(k in applied.cfg))delete cfg[k];Object.assign(cfg,applied.cfg);parallelNote=applied.note;}
-  /* Context choice: applies to ALL models. */
-  const wantContext=Number(args.context||args.values?.context||args.values?.max_context||cfg.max_context||0);
-  if(wantContext>0){const list=[];const old=Array.isArray(cfg.args)?cfg.args:[];for(let i=0;i<old.length;i++){if(old[i]==='--max-context'){i++;continue;}list.push(old[i]);}list.push('--max-context',String(wantContext));cfg.args=list;cfg.max_context=wantContext;if(Array.isArray(cfg.args_written))cfg.args_written=[...cfg.args];}
+  /* Context choice: applies to ALL models when explicitly passed */
+  const wantContext=Number(args.context||args.values?.context||args.values?.max_context||0);
+  if(wantContext>0){
+    const list=[...(cfg.args??[])];
+    const at=list.indexOf('--max-context');
+    if(at>=0){list[at+1]=String(wantContext);}else{list.push('--max-context',String(wantContext));}
+    cfg.args=list;cfg.max_context=wantContext;if(Array.isArray(cfg.args_written))cfg.args_written=[...cfg.args];
+  }
   /* DeepSeek's Speed choice: the engine decides by itself (--experts auto: 5 when the cards total 16 GB or less, else 6), so nothing is passed unless the person chose 5 or 6. */
-  if(ownEngine(config)){const list=[];const old=Array.isArray(cfg.args)?cfg.args:[];const wantVision=args.vision!=='no'&&config.ui_vision_enabled!==false;for(let i=0;i<old.length;i++){if(old[i]==='--experts'){i++;continue;}if(old[i]==='--vision'){i++;continue;}list.push(old[i]);}list.push('--vision',wantVision?'on':'off');if(dsExpertsSupported(config)&&(cfg.ds_experts==='5'||cfg.ds_experts==='6'))list.push('--experts',cfg.ds_experts);else if(!dsExpertsSupported(config)&&old.includes('--experts'))list.splice(0,list.length,...old);cfg.args=list;delete cfg.ds_experts;
+  if(ownEngine(config)){const list=[];const old=Array.isArray(cfg.args)?cfg.args:[];for(let i=0;i<old.length;i++){if(old[i]==='--experts'){i++;continue;}list.push(old[i]);}if(dsExpertsSupported(config)&&(cfg.ds_experts==='5'||cfg.ds_experts==='6'))list.push('--experts',cfg.ds_experts);else if(!dsExpertsSupported(config)&&old.includes('--experts'))list.splice(0,list.length,...old);cfg.args=list;delete cfg.ds_experts;
    /* Only the options strata-dsv41 takes go to it (#4504): --vram-reserve-mib is its --reserve-mib, and --pool-workers and the other Qwen-engine names are left out, in the arguments and in the person's saved options. */
    const built=dsEngineArgs(cfg.args);cfg.args=built.args;dsNote=dsArgsNote(built);
    if(Array.isArray(cfg[USER_KEY])){const kept=dsUserArgs(cfg[USER_KEY]);if(kept.length)cfg[USER_KEY]=kept;else delete cfg[USER_KEY];}}
@@ -349,7 +353,6 @@ return {summary:result.summary??'Deleted',removed:result.plan?.gb??null};}
   if(job.state!=='running')return;
   writeFileSync(configPath,JSON.stringify(cfg,null,2),{mode:0o600});
   const atCtx=cfg.args?.indexOf('--max-context');const effectiveCtx=atCtx>=0&&atCtx+1<cfg.args.length?Number(cfg.args[atCtx+1]):(entry.context||32768);
-  if(configFile&&existsSync(configFile)){try{const diskCfg=readJson(configFile,null);if(diskCfg){const diskOld=Array.isArray(diskCfg.args)?diskCfg.args:[];const diskList=[];for(let i=0;i<diskOld.length;i++){if(diskOld[i]==='--max-context'){i++;continue;}diskList.push(diskOld[i]);}if(effectiveCtx>0)diskList.push('--max-context',String(effectiveCtx));diskCfg.args=diskList;diskCfg.max_context=effectiveCtx;if(Array.isArray(diskCfg.args_written))diskCfg.args_written=[...diskList];writeFileSync(configFile,JSON.stringify(diskCfg,null,2)+'\n',{mode:0o600});}}catch{}}
   const isOwn=ownEngine(config);
   const instanceVision=isOwn?(cfg.args?.includes('--vision')&&cfg.args[cfg.args.indexOf('--vision')+1]!=='off'):!!cfg.vision;
   const instance={id,apiModelId,fingerprint,context:effectiveCtx,aliases:cfg.aliases??[],vision:instanceVision,resourceProfile:cfg.ui_resource_profile??null,model:args.model,label:friendlyModelName(snapshot.catalog,args.model)??entry.model_name??args.model,port:cfg.port,gpus:Array.isArray(cfg.gpu)?cfg.gpu:cfg.gpu===undefined?[]:[cfg.gpu],status:'loading',phase:'loading',parallel:cfg.parallel??1,mcpServers:cfg.mcp_servers??cfg.mcpServers??{},key,configPath,loadedAt:new Date().toISOString(),metrics:null,error:null};

@@ -29,7 +29,8 @@ test('a long chat on a small window compacts before it overflows, and the conver
   const worker = await startScriptedWorker({});
   const dir = mkdtempSync(join(tmpdir(), 'strata-compact-'));
   const ws = join(dir, 'ws'); mkdirSync(ws, { recursive: true });
-  const bridge = createAgentBridge({ dataDir: dir, localInstances: () => [{ id: 'i', label: 'S', baseUrl: worker.url, modelId: 'scripted-model', context: 16384, slots: 2 }], connections: () => [], env: process.env, startTimeoutMs: 90_000 });
+  const makeBridge = () => createAgentBridge({ dataDir: dir, skillsDir: () => join(dir, 'skills'), tools: () => ({ off: new Set(), search: { provider: 'builtin' }, continuity: true }), localInstances: () => [{ id: 'i', label: 'S', baseUrl: worker.url, modelId: 'scripted-model', context: 16384, slots: 2 }], connections: () => [], env: process.env, startTimeoutMs: 90_000 });
+  let bridge = makeBridge();
   t.after(async () => { await bridge.close(); await worker.close(); try { rmSync(dir, { recursive: true, force: true, maxRetries: 3 }); } catch { /* best effort */ } });
   const big = 'alpha '.repeat(1500);
   const replies = [];
@@ -42,10 +43,42 @@ test('a long chat on a small window compacts before it overflows, and the conver
   assert.ok(replies.every(r => /^round\d/.test(r)), 'every round was answered: ' + replies.join(' | '));
   const reqs = worker.requests;
   const summaries = reqs.filter(r => r.summary);
+  assert.ok(summaries.some(r => r.raw.includes('SAME ongoing chat')), 'continuity instructions reached the real summarization request');
   assert.ok(summaries.length >= 1, 'the Harness asked for a summary of the old history');
   const answers = reqs.filter(r => !r.summary && r.toolNames.length);
   const peak = Math.max(...answers.map(r => r.promptChars));
   assert.ok(peak < 16384 * 4, `no request was bigger than the window (about ${Math.round(peak / 4)} tokens of 16384)`);
   const lastRoundPrompt = answers.at(-1).promptChars;
   assert.ok(lastRoundPrompt < answers[Math.min(4, answers.length - 1)].promptChars + 1, 'the prompt stopped growing');
+  const sessionId = bridge.sessionOf('long');
+  await bridge.close();
+  bridge = makeBridge();
+  const resumed = [];
+  await bridge.runTurn({ chatId: 'long', message: 'SCRIPT:echo resumed', workspacePath: ws, mode: 'bypass', onFrame: f => resumed.push(f) });
+  assert.equal(bridge.sessionOf('long'), sessionId, 'reopening preserves the same durable session');
+  assert.ok(resumed.some(f => f.type === 'delta' && f.text?.includes('resumed')));
+  assert.equal(resumed.at(-1).type, 'done');
+});
+import { writeFileSync } from 'node:fs';
+test('continuity bounds large reads before they enter the model prompt', { skip }, async t => {
+ const worker=await startScriptedWorker({});const dir=mkdtempSync(join(tmpdir(),'strata-read-budget-'));const ws=join(dir,'ws');mkdirSync(ws);
+ const file=join(ws,'large.txt');writeFileSync(file,Array.from({length:1500},(_,i)=>`LINE_${i}_`+'x'.repeat(60)).join('\n'));
+ const bridge=createAgentBridge({dataDir:dir,skillsDir:()=>join(dir,'skills'),tools:()=>({off:new Set(),search:{provider:'builtin'},continuity:true}),localInstances:()=>[{id:'i',label:'S',baseUrl:worker.url,modelId:'scripted-model',context:65536,slots:2}],connections:()=>[],env:process.env,startTimeoutMs:90000});
+ t.after(async()=>{await bridge.close();await worker.close();rmSync(dir,{recursive:true,force:true,maxRetries:3});});
+ const frames=[];await bridge.runTurn({chatId:'read',message:`SCRIPT:read ${file}`,workspacePath:ws,mode:'bypass',onFrame:f=>frames.push(f)});
+ assert.equal(frames.at(-1).type,'done');
+ const toolMessages=worker.requests.flatMap(r=>JSON.parse(r.raw).messages??[]).filter(m=>m.role==='tool');
+ assert.ok(toolMessages.length,'a read result reached the model');
+ assert.ok(toolMessages.some(m=>JSON.stringify(m).includes('LINE_199_')),'first chunk available');
+ assert.ok(toolMessages.every(m=>!JSON.stringify(m).includes('LINE_1499_')),'the whole file was not injected');
+ assert.equal(worker.requests.filter(r=>r.summary).length,0,'one large file read does not force a summary');
+ const before=worker.requests.length;
+ await bridge.runTurn({chatId:'read',message:'SCRIPT:call pwsh '+JSON.stringify({command:"Write-Output ('result ' * 15000)",description:'Produce a large test result'}),workspacePath:ws,mode:'bypass',onFrame:()=>{}});
+ const shellResults=worker.requests.slice(before).flatMap(r=>JSON.parse(r.raw).messages??[]).filter(m=>m.role==='tool' && JSON.stringify(m).includes('Full formatted result stored at:'));
+ assert.ok(shellResults.length,'large command output is preserved in a retrievable file');
+ assert.ok(shellResults.every(m=>JSON.stringify(m).length<9000),'model receives a bounded preview');
+ for(let i=0;i<5;i++) await bridge.runTurn({chatId:'read',message:'SCRIPT:call pwsh '+JSON.stringify({command:"Write-Output ('result ' * 15000)",description:'Repeated large-output regression'}),workspacePath:ws,mode:'bypass',onFrame:()=>{}});
+ assert.equal(worker.requests.filter(r=>r.summary).length,0,'six large command results plus the file read do not trigger compaction');
+
+
 });

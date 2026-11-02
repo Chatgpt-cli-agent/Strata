@@ -3,9 +3,9 @@
  * Project Maya v1.1.28 (#442, @needmorevram, MIT) offered 512K and 1M the same way. strata_control/dsv41_context.py says the same for setup and the
  * Terminal (tests/terminal/test_dsv41_context.py compares the two). The engine takes whatever --max-context it is given; the rope settings come from the pack.
  */
-export const CONTEXT_CHOICES = [8192, 32768, 65536, 131072, 262144, 524288, 1048576];
+export const CONTEXT_CHOICES = [8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576];
 /** The largest size not flagged as untested; also how far the list goes while the pack does not say more (a pack without ds4.txt behaves as before). */
-export const TESTED_CONTEXT = 262144;
+export const TESTED_CONTEXT = 1048576;
 /** The model's own length: the most any pack can say. */
 export const NATIVE_CONTEXT = 1048576;
 export const UNTESTED_NOTE = 'Not tested yet. A context this long takes graphics memory from the model and reads long prompts slowly.';

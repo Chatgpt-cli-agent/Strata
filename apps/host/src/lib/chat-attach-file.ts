@@ -8,4 +8,4 @@ export async function uploadChatFile(file: File, sessionId: string, fetchFn: typ
 }
 
 /** Types the Linux file dialog needs next to the extensions (WebKitGTK reads only the type part of `accept`). */
-export const FILE_ACCEPT = 'image/*,application/pdf,text/*,application/json,application/xml,.pdf,.txt,.md,.markdown,.csv,.ts,.tsx,.js,.jsx,.py,.json,.css,.rs,.go,.sh,.html,.htm,.yaml,.yml,.toml,.xml,.log';
+export const FILE_ACCEPT = 'image/*,video/*,.mp4,.webm,.mov,.mkv,application/pdf,text/*,application/json,application/xml,.pdf,.txt,.md,.markdown,.csv,.ts,.tsx,.js,.jsx,.py,.json,.css,.rs,.go,.sh,.html,.htm,.yaml,.yml,.toml,.xml,.log';

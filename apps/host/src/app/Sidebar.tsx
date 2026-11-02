@@ -18,7 +18,7 @@ import { MOD, runCommand } from '../lib/commands';
 import { bindingFor, bindingKeys, useBindings } from '../lib/shortcut-bindings';
 import { Btn, Dialog, Icon, IconBtn, type IconName } from '../components/ui';
 import { Brand } from '../components/Brand';
-import { addWorkspace, deleteSession, go, isUnread, pickWorkspace, renameSession, removeWorkspace, renameWorkspace, selectSession, setActiveWorkspace, setNavOpen, togglePin, toggleRail, setTheme, useStore } from '../lib/store';
+import { addWorkspace, deleteSession, go, isUnread, pickWorkspace, refreshWorkspaces, renameSession, removeWorkspace, renameWorkspace, selectSession, setActiveWorkspace, setNavOpen, togglePin, toggleRail, setTheme, useStore } from '../lib/store';
 export function Sidebar({ containerRef }: {
     containerRef: RefObject<HTMLElement | null>;
 }) {
@@ -38,6 +38,7 @@ export function Sidebar({ containerRef }: {
     const activeWorkspace = useStore(s => s.activeWorkspace);
     const activeSession = useStore(s => s.activeSession);
     const [query, setQuery] = useState('');
+    useEffect(() => { void refreshWorkspaces(); }, []);
     const [searchOpen, setSearchOpen] = useState(false);
     const searchInput = useRef<HTMLInputElement>(null);
     const searchTrigger = useRef<HTMLButtonElement>(null);
@@ -49,6 +50,7 @@ export function Sidebar({ containerRef }: {
     const [recentOpen, setRecentOpen] = useState(false);
     const [includeArchived, setIncludeArchived] = useState(false);
     const [removeWorkspaceId, setRemoveWorkspaceId] = useState<string | null>(null);
+    const [addWsOpen, setAddWsOpen] = useState(false), [newWsPath, setNewWsPath] = useState('');
     const [menuId, setMenuId] = useState<string | null>(null);
     const [renameId, setRenameId] = useState<string | null>(null);
     const [renameWsId, setRenameWsId] = useState<string | null>(null), [wsName, setWsName] = useState('');
@@ -83,13 +85,21 @@ export function Sidebar({ containerRef }: {
                         e.preventDefault();
                         closeSearch();
                     }
-                }}/><IconBtn name="x" title={tr("Close chat search")} onClick={closeSearch}/></div> : <><span className="navgroup__label">{tr("Workspaces")}</span><div className="ws__tools"><button ref={searchTrigger} type="button" className="st-btn st-btn--icon" aria-label={tr("Search chats")} title={tr("Search chats")} onClick={() => setSearchOpen(true)}><Icon name="search" size={18}/></button><IconBtn name="folder-plus" title={tr("Add a workspace folder")} onClick={() => { void pickWorkspace().then(path => path ? addWorkspace(path) : undefined); }}/></div></>)}</div>
-          {workspaces.map(w => {
+                }}/><IconBtn name="x" title={tr("Close chat search")} onClick={closeSearch}/></div> : <><span className="navgroup__label">{tr("Workspaces")}</span><div className="ws__tools"><button ref={searchTrigger} type="button" className="st-btn st-btn--icon" aria-label={tr("Search chats")} title={tr("Search chats")} onClick={() => setSearchOpen(true)}><Icon name="search" size={18}/></button><IconBtn name="folder-plus" title={tr("Add a workspace folder")} onClick={() => { setNewWsPath(''); setAddWsOpen(true); }}/></div></>)}</div>
+          {workspaces.length === 0 ? (
+            <div style={{ padding: '16px 12px', textAlign: 'center' }}>
+              <p className="small muted" style={{ marginBottom: 12 }}>{tr("No workspaces added yet.")}</p>
+              <Btn size="sm" variant="primary" onClick={() => { setNewWsPath(''); setAddWsOpen(true); }}>
+                <Icon name="folder-plus" size={15}/> {tr("Add a workspace")}
+              </Btn>
+            </div>
+          ) : (
+            workspaces.map(w => {
                 const expanded = folders[w.id] !== false || !!q;
                 const rows = matching.filter(s => s.workspace === w.path || !!w.aliases?.includes(s.workspace));
                 const shown = q ? rows : rows.slice(0, 20);
                 return <div className="ws__group" key={w.id}>
-              <div className={cx('ws__row', activeWorkspace === w.id && 'is-active')}><button className="ws__name" aria-expanded={expanded} onClick={() => { setActiveWorkspace(w.id); setFolders(f => ({ ...f, [w.id]: !expanded })); }}><Icon name="chevron" size={14} className={cx('ws__chev', expanded && 'is-open')}/><Icon name="folder" size={17}/><span>{w.name}</span></button><IconBtn name="pencil" title={tr("Rename {0}", [w.name])} onClick={() => { setWsName(w.name); setNavOpen(false); setRenameWsId(w.id); }}/>{tr(w.id !== 'root' ? <IconBtn name="x" title={tr("Remove {0} from sidebar", [w.name])} onClick={() => { setNavOpen(false); setRemoveWorkspaceId(w.id); }}/> : null)}</div>
+              <div className={cx('ws__row', activeWorkspace === w.id && 'is-active')}><button className="ws__name" aria-expanded={expanded} onClick={() => { setActiveWorkspace(w.id); setFolders(f => ({ ...f, [w.id]: !expanded })); }}><Icon name="chevron" size={14} className={cx('ws__chev', expanded && 'is-open')}/><Icon name="folder" size={17}/><span>{w.name}</span></button><IconBtn name="pencil" title={tr("Rename {0}", [w.name])} onClick={() => { setWsName(w.name); setNavOpen(false); setRenameWsId(w.id); }}/><IconBtn name="x" title={tr("Remove {0} from sidebar", [w.name])} onClick={() => { setNavOpen(false); setRemoveWorkspaceId(w.id); }}/></div>
               {tr(expanded ? <div className="navsessions">
                 {tr(shown.map(s => <div key={s.id}>
                   <div className="ws__session row"><a className="navsession" href={href('chat', s.id)} aria-current={activeSession === s.id && location.route === 'chat' ? 'page' : undefined} onClick={() => selectSession(s.id)} onContextMenu={e => { e.preventDefault(); openMenu(s.id, e.currentTarget); }} title={sessionTitle(s)}><span className="navsession__title">{sessionTitle(s)}</span>{tr(s.pinned ? <span aria-label={tr("Pinned")}><Icon name="pin" size={12}/></span> : <span className="navsession__time">{tr(relTime(s.updatedAt))}</span>)}{tr(isUnread(s, activeSession) ? <span className="navsession__unread" aria-label={tr("Unread")}/> : null)}{tr(s.archived ? <span className="xs muted">{tr("Archived")}</span> : null)}</a><button className="st-btn st-btn--icon session-overflow" aria-label={tr("Actions for {0}", [sessionTitle(s)])} onClick={e => openMenu(s.id, e.currentTarget)}><Icon name="ellipsis" size={16}/></button></div>
@@ -98,7 +108,7 @@ export function Sidebar({ containerRef }: {
                 {tr(!q && rows.length > shown.length ? <button className="ws-view small" onClick={() => { setNavOpen(false); setRecentOpen(true); }}>{tr("View all chats")}</button> : null)}
               </div> : null)}
             </div>;
-            })}
+            }))}
         </div> : null}
       </div>
       <div className="nav__foot">
@@ -133,6 +143,15 @@ export function Sidebar({ containerRef }: {
                 if (removeWorkspaceId)
                     void removeWorkspace(removeWorkspaceId).then(() => setRemoveWorkspaceId(null));
             }}>{tr("Remove from sidebar")}</Btn></>}><p>{tr("Files stay on your computer. Add this folder again to reopen its chats.")}</p></Dialog>
+    <Dialog open={addWsOpen} compact title={tr("Add workspace folder")} onClose={() => setAddWsOpen(false)} actions={<><Btn onClick={() => setAddWsOpen(false)}>{tr("Cancel")}</Btn><Btn variant="primary" disabled={!newWsPath.trim()} onClick={async () => {
+      if (newWsPath.trim()) {
+        await addWorkspace(newWsPath.trim());
+        setAddWsOpen(false);
+      }
+    }}>{tr("Add workspace")}</Btn></>}><div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}><label className="input-field" htmlFor="new-workspace-path"><span>{tr("Folder path")}</span><div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input className="st-input" id="new-workspace-path" placeholder="e.g. H:\00_Unreal" value={newWsPath} onChange={e => setNewWsPath(e.target.value)} style={{ flex: 1 }}/><Btn size="sm" type="button" onClick={async () => {
+      const path = await pickWorkspace();
+      if (path) setNewWsPath(path);
+    }}>{tr("Browse…")}</Btn></div></label><p className="small muted">{tr("Enter a folder path on your computer or click Browse.")}</p></div></Dialog>
     <Dialog open={recentOpen} title={tr("All chats")} onClose={() => setRecentOpen(false)}><div className="stack"><label className="row small"><input type="checkbox" checked={includeArchived} onChange={e => setIncludeArchived(e.target.checked)}/>{tr("Include archived chats")}</label><input type="search" className="st-input" placeholder={tr("Search chats…")} aria-label={tr("Search all chats")} value={query} onChange={e => setQuery(e.target.value)}/>{tr(matching.map(s => <button className="recent-chat" key={s.id} onClick={() => { selectSession(s.id); go('chat', s.id); setRecentOpen(false); }}><span>{sessionTitle(s)}</span><span className="xs muted">{tr(relTime(s.updatedAt))}</span></button>))}{tr(!matching.length ? <p className="small muted">{tr("No matching chats. Try another search.")}</p> : null)}</div></Dialog>
   </>;
 }

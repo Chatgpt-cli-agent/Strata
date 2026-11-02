@@ -147,7 +147,7 @@ export function NativeModels({ onOtherModels, onReady, onImport, onConnectEngine
         else {
             setVision('yes');
             if (selectedSize.multi_file)
-                setContext(8192);      // DeepSeek runs at the one context its engine was checked at (as in the guided setup)
+                setContext(32768);      // DeepSeek context default: 32K keeps ample room for agent harness
         }
     }, [selectedSize?.id, installed?.model, installed?.ready, installed?.context, installed?.kv, installed?.images, installed?.visionEnabled, installed?.visionDevice, installed?.lowRamMode, installed?.resourceProfile]);
     useEffect(() => { if (jobId && job?.state === 'done' && job.id !== toastedJob && (job.kind === 'load' || job.kind === 'install')) {
@@ -165,8 +165,8 @@ export function NativeModels({ onOtherModels, onReady, onImport, onConnectEngine
         setPending(false);
     } }
     async function load() { if (!selectedSize)
-        return; await perform(async () => { if (installed?.ready && context === installed.context && (!selectedSize?.images || vision === 'no' || installed.images && installed.images !== 'off') && (!installed.kv || kv === installed.kv || kv === tunedNow?.fields.kv) && (lowRam === (installed.lowRamMode ?? 'auto') || lowRam === tunedNow?.fields.lowRam)) {
-        const result = await nativeAction<NativeJob>('operations', { kind: 'load', args: { model: selectedSize.id, resourceProfile, vision: selectedSize?.images ? vision : 'no', multiple: expert && multiple, ...(draftingChoices ? { values: { drafting } } : {}), ...(roleCards.length > 1 ? (roles && customRoles ? { gpuRoles: effectiveRoles, layerSplit: expert && cardsGpus.length > 1 ? split : 'auto' } : cardsGpus.length ? { gpus: cardsGpus, gpusFromRecommendation: true, layerSplit: expert && cardsGpus.length > 1 ? split : 'auto' } : {}) : {}) } });
+        return; await perform(async () => { if (installed?.ready && (!selectedSize?.images || vision === 'no' || installed.images && installed.images !== 'off') && (!installed.kv || kv === installed.kv || kv === tunedNow?.fields.kv) && (lowRam === (installed.lowRamMode ?? 'auto') || lowRam === tunedNow?.fields.lowRam)) {
+        const result = await nativeAction<NativeJob>('operations', { kind: 'load', args: { model: selectedSize.id, context, resourceProfile, vision: selectedSize?.images ? vision : 'no', multiple: expert && multiple, ...(draftingChoices ? { values: { drafting } } : {}), ...(roleCards.length > 1 ? (roles && customRoles ? { gpuRoles: effectiveRoles, layerSplit: expert && cardsGpus.length > 1 ? split : 'auto' } : cardsGpus.length ? { gpus: cardsGpus, gpusFromRecommendation: true, layerSplit: expert && cardsGpus.length > 1 ? split : 'auto' } : {}) : {}) } });
         setJobId(result.id);
     }
     else
@@ -194,7 +194,7 @@ export function NativeModels({ onOtherModels, onReady, onImport, onConnectEngine
       {tr(noFit ? <p className="small muted native-spill-note"><Icon name="disk" size={16}/>{tr("May run slower \u00B7 Model data can be read from SSD.")}</p> : null)}
       {tr(selectedSize?.multi_file && deepseekContextNote(context) ? <p className="small muted native-spill-note"><Icon name="info" size={16}/>{tr(deepseekContextNote(context))}</p> : null)}
       <div className="native-choice__row">
-       <div className="native-choice__col"><span className="native-choice__label">{tr("Conversation context")}</span><Select ariaLabel={tr("Conversation context")} value={String(context)} options={contextChoices(selectedSize?.multi_file ? deepseekContexts(installed?.contextMax) : native?.catalog?.contexts ?? [8192, 32768, 65536, 131072, 262144], context).map(n => ({ value: String(n), label: n % 1024 === 0 ? `${n / 1024}K` : `${n.toLocaleString()} tokens` }))} onChange={n => setContext(Number(n))}/></div>
+       <div className="native-choice__col"><span className="native-choice__label">{tr("Conversation context")}</span><Select ariaLabel={tr("Conversation context")} value={String(context)} options={contextChoices(selectedSize?.multi_file ? deepseekContexts(installed?.contextMax) : native?.catalog?.contexts ?? [8192, 16384, 32768, 65536, 131072, 262144], context).map(n => ({ value: String(n), label: n % 1024 === 0 ? `${n / 1024}K` : `${n.toLocaleString()} tokens` }))} onChange={n => setContext(Number(n))}/></div>
        {tr(draftingChoices ? <div className="native-choice__col"><span className="native-choice__label">{tr("Drafting")}</span><Select ariaLabel={tr("Drafting")} value={drafting} disabled={!!active} options={draftingChoices.map(v => ({ value: v, label: tr(draftingWords[v]) }))} onChange={v => setDrafting(String(v))}/></div> : null)}
        <div className="native-choice__col"><span className="native-choice__label">{tr("Computer use")}</span><div className="native-resource-choice"><button aria-pressed={resourceProfile === 'work'} data-selected={resourceProfile === 'work'} onClick={() => setResourceProfile('work')}><Icon name="computer" size={20}/><span><strong>{tr("Leave 20% for my work")}</strong><small>{tr("Headroom for your other apps")}</small></span>{tr(resourceProfile === 'work' ? <Icon name="check" size={15}/> : null)}</button><button aria-pressed={resourceProfile === 'performance'} data-selected={resourceProfile === 'performance'} onClick={() => setResourceProfile('performance')}><Icon name="bolt" size={20}/><span><strong>{tr("Full performance")}</strong><small>{tr("Give Strata priority")}</small></span>{tr(resourceProfile === 'performance' ? <Icon name="check" size={15}/> : null)}</button></div></div>
       </div>

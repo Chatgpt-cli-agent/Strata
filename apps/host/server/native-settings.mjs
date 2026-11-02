@@ -1,6 +1,7 @@
 import { validMcpName, MCP_NAME_HELP } from './mcp-names.mjs';
 /** Editable native keys. Unknown config keys and program paths stay intact. */
 export const NATIVE_FIELDS=[
+ {id:'max_context',label:'Maximum context length (tokens)',group:'GPU & memory',type:'number',min:1024,max:1048576,hint:'Context window allocated for the model. DeepSeek supports up to 1,048,576; Qwen up to 262,144.'},
  {id:'reasoning_budget_tokens',label:'Thinking token budget',group:'Responses',type:'number',min:0,max:1048576,hint:'Leave blank for the model default.'},
  {id:'fit_max_tokens',label:'Fit output to remaining context',group:'Responses',type:'boolean',hint:'Shortens the requested output cap when the prompt leaves less room.'},
  {id:'anthropic_thinking',label:'Anthropic thinking',group:'Responses',type:'enum',choices:['model','on_request'],hint:'Follow the model default or think only when requested.'},
@@ -85,7 +86,7 @@ export function setSpeedSwitch(env,id,on){
 /** What the settings answer carries: each switch that applies, with its words, its default, the entries it writes outside the default, and whether the feature is on. */
 export function speedSwitchRows(env,context){return SPEED_SWITCHES.filter(s=>speedSwitchApplies(s.id,context)).map(s=>({...s,on:speedSwitchIsOn(env,s.id)}));}
 /** Settings the app itself applies when it starts a model (they are not read from the engine's source, so the engine's text never says it supports them). */
-export const APP_OWNED_FIELDS=['mtp','batchMtp','drafting','ds_experts'];
+export const APP_OWNED_FIELDS=['mtp','batchMtp','drafting','ds_experts','max_context'];
 /** The engine arguments without the draft layer: --mtp <folder or count>, --spec-min-p <p> (its confidence threshold) and --batch-mtp. --spec stays: prompt lookup still uses its windows. Same rule as strata_control/draft_layer.py. */
 export function withoutDraftLayer(args){
  const out=[];const list=(args??[]).map(String);

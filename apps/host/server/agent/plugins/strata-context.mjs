@@ -28,7 +28,7 @@ const wrapped = new WeakSet();
 /** Densities that made a summary request fail on this server, per session id (the next request starts from a more careful one). */
 const careful = new Map();
 
-export function apply(ctx) {
+export function apply(ctx, config = {}) {
   const meter = ctx.tokenMeter;
   const llm = ctx.llm;
   const log = (level, text) => { try { ctx.logger?.[level]?.(`strata-context: ${text}`); } catch { /* logging never blocks */ } };
@@ -70,7 +70,7 @@ export function apply(ctx) {
     const original = llm.stream;
     llm.stream = function stream(options) {
       if (options?.purpose !== 'compaction') return original.call(this, options);
-      return summaryStream.call(this, options, original);
+      return summaryStream.call(this, config.continuity ? continuityRequest(options) : options, original);
     };
   }
 
@@ -156,4 +156,16 @@ export function apply(ctx) {
       log('warn', `a piece did not fit; asking again with pieces of about ${Math.round(budget)} tokens`);
     }
   }
+}
+
+/** Preserve the active task across repeated summaries, including each chunked summary. */
+export function continuityRequest(options) {
+  const instruction = { role: 'user', content: [{ type: 'text', text:
+    'Create a compact continuation record for the SAME ongoing chat. Do not answer the task or mark unfinished work complete. ' +
+    'Merge any previous summary with newer evidence; newer user corrections take precedence. Preserve the original objective, all outstanding user requests, constraints and authorizations, decisions with reasons, completed work and verification, active work, blockers, exact relevant file paths and next actions. ' +
+    'Distinguish verified results from assumptions. Preserve errors needed to resume and references to durable artifacts. Do not include credentials. ' +
+    'Keep the summary under 600 words. Do not inventory files merely read, directory listings, tool counts or repeated diagnostics. Keep at most ten paths needed for the next action. Replace obsolete details instead of accumulating them across summaries. ' +
+    'Use concise sections: Objective; Requirements; Decisions; Completed; Active; Blocked; Next actions; Relevant files; Important context. ' +
+    'This is a context checkpoint, not the end of the task. The assistant should continue the next unfinished action in this same session without repeating completed work or asking again for authorization already given.' }] };
+  return { ...options, messages: [...(options.messages ?? []), instruction] };
 }

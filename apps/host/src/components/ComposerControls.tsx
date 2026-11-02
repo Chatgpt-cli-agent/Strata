@@ -9,6 +9,7 @@ import { pushToast, setChatPreferences, useStore } from '../lib/store';
 import { artifactFromUrl, type PreviewArtifact } from '../lib/artifacts';
 import type { ChatMode, Session } from '../lib/types';
 import { attachChatPhoto } from '../lib/chat-photos';
+import { extractVideoFrames } from '../lib/video-frames';
 import { uploadChatFile, FILE_ACCEPT } from '../lib/chat-attach-file';
 import { useNative } from '../lib/native';
 import { pictureStatus } from '../lib/pictures';
@@ -26,6 +27,7 @@ const efforts = ['Off', 'Low', 'Medium', 'High', 'Max'];
 const THINKING_BUDGETS: [number, string][] = [[0, 'No limit'], [2048, '2K'], [8192, '8K'], [32768, '32K']];
 const textTypes = /\.(txt|md|markdown|csv|tsx?|jsx?|py|json|css|rs|go|sh|html?|ya?ml|toml|xml|log)$/i;
 const photoTypes = /\.(png|jpe?g|webp|gif|svg)$/i;
+const videoTypes = /\.(mp4|webm|mov|mkv)$/i;
 export function ComposerControls({ session, onPreview, onAttach, onError, onSlash, streaming, draft, onDraft }: {
     draft: string;
     onDraft: (text: string) => void;
@@ -90,6 +92,22 @@ export function ComposerControls({ session, onPreview, onAttach, onError, onSlas
                 }
                 if (!directory && photoTypes.test(file.name) && pictures.ok) {
                     await attachChatPhoto(file, session?.id);
+                    continue;
+                }
+                if (!directory && videoTypes.test(file.name)) {
+                    if (!pictures.ok) {
+                        onError(`${tr(pictures.message)} Video analysis requires picture reading to be enabled.`);
+                        continue;
+                    }
+                    try {
+                        const frames = await extractVideoFrames(file, 3);
+                        for (const frame of frames) {
+                            await attachChatPhoto(frame, session?.id);
+                        }
+                        pushToast('success', tr('Video processed'), tr('Extracted {0} keyframes from {1}.', [frames.length, file.name]));
+                    } catch (err: any) {
+                        onError(err?.message || 'Could not extract frames from video.');
+                    }
                     continue;
                 }
                 if (!directory && session?.id && /\.pdf$/i.test(file.name) && file.size <= 12 * 1024 * 1024) {

@@ -3526,5 +3526,15 @@
   "s9034": "Das Modell wird geladen …",
   "s9035": "Diese Modelldateien fehlen: {0}.",
   "s9036": "Drücken Sie noch einmal auf „Herunterladen und laden“, um sie zu holen. Vorhandene Dateien bleiben erhalten. Werden dieselben Dateien wieder aufgelistet, öffnen Sie die Details und teilen Sie sie mit, wenn Sie um Hilfe bitten.",
-  "s9037": "Dieses Update wurde beim Neustart der App unterbrochen. Ein späteres Update ist abgeschlossen, Sie müssen nichts tun."
+  "s9037": "Dieses Update wurde beim Neustart der App unterbrochen. Ein späteres Update ist abgeschlossen, Sie müssen nichts tun.",
+  "s9500": "Noch keine Arbeitsbereiche hinzugefügt.",
+  "s9501": "Arbeitsbereich hinzufügen",
+  "s9502": "Arbeitsbereich-Ordner hinzufügen",
+  "s9503": "Arbeitsbereich hinzufügen",
+  "s9504": "Durchsuchen…",
+  "s9505": "Geben Sie einen Ordnerpfad ein oder klicken Sie auf Durchsuchen.",
+  "s9506": "Video verarbeitet",
+  "s9507": "{0} Keyframes aus {1} extrahiert.",
+  "s9508": "Keine Antwort.",
+  "s9509": "Stellen Sie nebenbei eine Frage; die Antwort fließt nicht in diesen Chat ein"
 }

@@ -3526,5 +3526,15 @@
   "s9034": "Chargement du modèle…",
   "s9035": "Ces fichiers du modèle sont manquants : {0}.",
   "s9036": "Appuyez à nouveau sur Télécharger et charger pour les récupérer. Les fichiers déjà présents sont conservés. Si les mêmes fichiers sont listés à nouveau, ouvrez Détails et partagez-les quand vous demandez de l’aide.",
-  "s9037": "Cette mise à jour a été interrompue au redémarrage de l’application. Une mise à jour plus récente s’est terminée, il n’y a donc rien à faire."
+  "s9037": "Cette mise à jour a été interrompue au redémarrage de l’application. Une mise à jour plus récente s’est terminée, il n’y a donc rien à faire.",
+  "s9500": "Aucun espace de travail ajouté.",
+  "s9501": "Ajouter un espace",
+  "s9502": "Ajouter un dossier",
+  "s9503": "Ajouter un espace",
+  "s9504": "Parcourir…",
+  "s9505": "Entrez un chemin de dossier ou cliquez sur Parcourir.",
+  "s9506": "Vidéo traitée",
+  "s9507": "{0} images-clés extraites de {1}.",
+  "s9508": "Sans réponse.",
+  "s9509": "Posez une question secondaire ; la réponse n’entre pas dans cette discussion"
 }

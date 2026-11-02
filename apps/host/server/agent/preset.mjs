@@ -52,7 +52,7 @@ export const AGENT_PROMPT = [
  * @param {{platform?: string, search?: boolean}} [options]
  * @returns {object} the `config` of the `preset-standard` row
  */
-export function standardPreset({ platform = process.platform, search = false, off = new Set(), skillsDir = null, compaction = [] } = {}) {
+export function standardPreset({ platform = process.platform, search = false, off = new Set(), skillsDir = null, compaction = [], continuity = false } = {}) {
   const windows = platform === 'win32';
   const plugins = [
     { id: 'persona', name: '@deepseek-ai/dsh-persona', config: { prefix: AGENT_PROMPT, complete: true, includeRuntimeContext: false } },
@@ -61,18 +61,18 @@ export function standardPreset({ platform = process.platform, search = false, of
     windows
       ? { id: 'tool-pwsh', name: '@deepseek-ai/dsh-tool-pwsh' }
       : { id: 'tool-bash', name: '@deepseek-ai/dsh-tool-bash' },
-    { id: 'tool-fs', name: '@deepseek-ai/dsh-tool-fs' },
+    { id: 'tool-fs', name: '@deepseek-ai/dsh-tool-fs', ...(continuity ? { config: { readLimit: 200 } } : {}) },
     { id: 'tool-fs-search', name: '@deepseek-ai/dsh-tool-fs-search', config: { sampleOverCapGlobResults: false } },
     { id: 'tool-jobs', name: '@deepseek-ai/dsh-tool-jobs' },
     // The skills of the Skills page, written out as folders the Harness scans (and watches: a skill saved in the app is there at once).
-    { id: 'skill-filesystem', name: '@deepseek-ai/dsh-skill-filesystem', ...(skillsDir ? { config: { customSkillDirs: [skillsDir] } } : {}) },
+    { id: 'skill-filesystem', name: '@deepseek-ai/dsh-skill-filesystem', ...(skillsDir ? { config: { customSkillDirs: [skillsDir], includeDefaultRoots: false } } : {}) },
     { id: 'tool-skill', name: '@deepseek-ai/dsh-tool-skill' },
     { id: 'command-goal', name: '@deepseek-ai/dsh-command-goal' },
     { id: 'tool-goal', name: '@deepseek-ai/dsh-tool-goal' },
     {
       id: 'compaction', name: 'cordis:group', group: true, isolate: { compaction: true, toolResultPruner: true },
       config: [
-        { id: 'compaction-basic', name: '@deepseek-ai/dsh-compaction-basic', ...(compaction.length ? { config: { modelPolicies: compaction } } : {}) },
+        { id: 'compaction-basic', name: '@deepseek-ai/dsh-compaction-basic', ...(compaction.length ? { config: { modelPolicies: continuity ? compaction.map(policy => ({ ...policy, retainRatio: 0.08, maxTokens: 2048 })) : compaction } } : {}) },
         { id: 'command-compact', name: '@deepseek-ai/dsh-command-compact' },
         { id: 'tool-result-pruner', name: '@deepseek-ai/dsh-compaction-tool-result-pruner', config: { thresholdChars: 8192, headChars: 4096, tailChars: 1024 } },
       ],

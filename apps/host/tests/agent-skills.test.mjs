@@ -52,7 +52,7 @@ test('the agent profile tells the skills plugin to scan the app skill folder', (
   const dir = '/data/agent/skills-live';
   const entries = JSON.parse(buildProfile({ local: [], connections: [], skillsDir: dir }).patch.split('\n').slice(1).join('\n'));
   const plugins = entries.find(e => e.id === 'preset-standard').config.plugins;
-  assert.deepEqual(plugins.find(p => p.id === 'skill-filesystem').config, { customSkillDirs: [dir] });
+  assert.deepEqual(plugins.find(p => p.id === 'skill-filesystem').config, { customSkillDirs: [dir], includeDefaultRoots: false });
   assert.ok(plugins.some(p => p.id === 'tool-skill'), 'the skill loader tool is in the preset');
 });
 

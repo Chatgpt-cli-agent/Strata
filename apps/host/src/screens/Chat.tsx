@@ -27,6 +27,7 @@ import { FolderChip } from '../components/FolderChip';
 import { DropZone, DROP_EVENT, pastedFiles } from '../components/DropZone';
 import { ActivityLine, EditedFiles, FileCard, SkillsUsed } from '../components/Deliverables';
 import { queueMessage, usePlan, usePlanQuiet } from '../lib/plan';
+import { parseBtw } from '../lib/btw';
 import { plainFailureText } from '../lib/plain-errors';
 import { contextRecovery } from '../lib/context-recovery';
 import { useLiveStatus } from '../lib/live-status';
@@ -373,6 +374,16 @@ export function ChatScreen() {
         const text = draft.trim();
         if (!text && !queuedPhotos.length)
             return;
+        const btw = parseBtw(text);
+        if (btw !== null) {
+            if (!btw) {
+                pushToast('info', 'Add a question after /btw', 'For example: /btw What changed?');
+                return;
+            }
+            updateDraft('');
+            void sendMessage(text);
+            return;
+        }
         if (streaming) {
             // Typed while a goal runs: it waits in the queue, shown under the conversation. With no goal running there is nothing to queue behind.
             if (!text || !session)
@@ -471,6 +482,7 @@ function useSlashCommands(clear: () => void, setDraft: (value: string) => void):
     const demo = useStore(s => s.library?.mode === 'simulated');
     return [
         { id: 'time-skip', label: '/time-skip', hint: 'Try a change on a copy, check it, and keep it only if it is better', icon: 'branch', run: () => setDraft('/time-skip ') },
+        { id: 'btw', label: '/btw', hint: 'Ask a side question by the way; the answer does not enter this chat', icon: 'chat', run: () => setDraft('/btw ') },
         { id: 'goal', label: '/goal', hint: 'Set a goal and let the assistant keep working until it is done', icon: 'bolt', run: () => setDraft('/goal ') },
         { id: 'plan', label: '/plan', hint: 'Have the assistant write a plan first; nothing runs until you approve it', icon: 'check', run: () => setDraft('/plan ') },
         { id: 'research', label: '/research', hint: 'Search the web, read the pages and answer with sources', icon: 'search', run: () => setDraft('/research ') },
@@ -592,7 +604,12 @@ function Composer({ draft, setDraft, loaded, streaming, onSubmit, onKey, session
         }}/>
           <div className="st-composer__bar">
             <ComposerControls draft={draft} onDraft={setDraft} session={session} onPreview={onPreview} streaming={streaming} onSlash={() => { setSlashDismissed(false); setSlashOpen(true); requestAnimationFrame(() => textareaRef.current?.focus()); }} onError={setFileError} onAttach={(name, text) => { setDraft(`${draft}${draft ? '\n\n' : ''}Attached ${name}\n\n${text}`); requestAnimationFrame(() => textareaRef.current?.focus()); }}/>
-            {tr(streaming ? (<Btn variant="secondary" size="sm" icon="stop" onClick={stopStreaming}>{tr("Stop")}</Btn>) : (<Btn variant="primary" size="sm" icon="send" disabled={(!draft.trim() && !photos.length) || draft.trim() === '/' || (!canChat && timeSkipPrompt(draft) === null)} onClick={onSubmit}>{tr("Send")}</Btn>))}
+            {tr(streaming ? (
+              <>
+                <Btn variant="secondary" size="sm" icon="stop" onClick={stopStreaming}>{tr("Stop")}</Btn>
+                {draft.trim() ? <Btn variant="primary" size="sm" icon="send" disabled={draft.trim() === '/' || (!canChat && timeSkipPrompt(draft) === null)} onClick={onSubmit}>{tr("Send")}</Btn> : null}
+              </>
+            ) : (<Btn variant="primary" size="sm" icon="send" disabled={(!draft.trim() && !photos.length) || draft.trim() === '/' || (!canChat && timeSkipPrompt(draft) === null)} onClick={onSubmit}>{tr("Send")}</Btn>))}
           </div>
         </div>
         <ChatTelemetry session={session}/>
@@ -655,11 +672,11 @@ function Message({ message: m, isLast, onEditPrompt, onPreview, onOpenLink, onOp
 
       {tr((m.tools ?? []).filter(t => !grouped || t.state !== 'done').map((t) => (<ToolCard key={t.id} messageId={m.id} tool={t}/>)))}
 
-      {tr(!(m.timeSkipId && timeSkipReal && !timeSkipDone) && (m.content || m.error || !m.streaming || !liveStatus) ? <div className="st-bubble">
+      {tr(!(m.timeSkipId && timeSkipReal && !timeSkipDone) && (m.content || m.error || !m.streaming || !liveStatus || m.local) ? <div className="st-bubble">
         {tr(planCard ? <PlanCard chatId={activeSession} planId={m.planId!}/> : null)}
         {tr(m.error ? (<ErrorNotice message={m.error} detail={m.errorDetail} {...contextRecovery(m.errorCode)}/>) : null)}
         {tr(grouped && !planCard && !m.timeSkipId ? m.blocks!.map((b, i) => b.kind === 'group' ? <ActivityLine key={b.id} group={b} sessionId={activeSession ?? ''} onPreview={onPreview}/> : <Markdown key={i} text={b.text} onOpenLink={onOpenLink} imageSession={activeSession} onPreviewHtml={content => onPreview({ id: m.id + '-html-' + i, kind: 'website', title: 'HTML preview', content })}/>) : null)}
-        {tr(m.content && !planCard && !grouped ? (<Markdown text={m.timeSkipId && !timeSkipReal ? hostLive ? tr('This was a sample run made while the app could not reach its host.') : timeSkipDone ? tr('The result is ready. Switch between Original and Updated, or compare them side by side. This example uses sample outputs and simulated checks.') : tr('Revising the saved draft. Follow the result in the sidebar. This example uses sample outputs and simulated checks.') : m.content} onOpenLink={onOpenLink} imageSession={activeSession} onPreviewHtml={content => onPreview({ id: m.id + '-html', kind: 'website', title: 'HTML preview', content })}/>) : !m.error && m.streaming && !liveStatus ? (<span className="typing" aria-label={tr("Generating")}>
+        {tr(m.content && !planCard && !grouped ? (<Markdown text={m.timeSkipId && !timeSkipReal ? hostLive ? tr('This was a sample run made while the app could not reach its host.') : timeSkipDone ? tr('The result is ready. Switch between Original and Updated, or compare them side by side. This example uses sample outputs and simulated checks.') : tr('Revising the saved draft. Follow the result in the sidebar. This example uses sample outputs and simulated checks.') : m.content} onOpenLink={onOpenLink} imageSession={activeSession} onPreviewHtml={content => onPreview({ id: m.id + '-html', kind: 'website', title: 'HTML preview', content })}/>) : !m.error && m.streaming && (!liveStatus || m.local) ? (<span className="typing" aria-label={tr("Generating")}>
             <i />
             <i />
             <i />

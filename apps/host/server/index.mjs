@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readLocalIntegrations, localSkills, localToolServers } from './local-integrations.mjs';
 import { engineProgressMark } from './agent/engine-progress.mjs';
 import './system-ca.mjs';        // #3722: the operating system's certificates, before any HTTPS request
 import { createCloudflare } from './cloudflare.mjs';
@@ -191,7 +192,7 @@ async function pictureRefusal(connection, model) {
   return `"${model.name}" is set not to read pictures (or its server says it cannot: a llama-server started without --mmproj, or a text-only model). If that is wrong, ${fix}. Otherwise choose a model that reads pictures.`;
 }
 const agent = createAgentBridge({
-  tools: () => agentTools.profileView(),
+  tools: () => { const own = agentTools.profileView(), local = readLocalIntegrations(store.DATA_DIR); return { ...own, servers: { ...localToolServers(local, store.DATA_DIR), ...own.servers }, continuity: local.continuity === true }; },
   skillsDir: () => AGENT_SKILLS,
   onGoal: (chatId, goal) => hub.send('goal', { chatId, goal }),
   // The person's Response settings (thinking budget, Expert sampling) reach the agent's model through this host's own forwarding endpoint.
@@ -403,7 +404,7 @@ for the choice being made.`,
       });
     }
   }
-  return [...bundled, ...extra].map(s => ({ ...s, ...store.get().skillEdits?.[s.id] }));
+  return [...bundled, ...extra, ...localSkills(readLocalIntegrations(store.DATA_DIR).skillRoots)].map(s => ({ ...s, ...store.get().skillEdits?.[s.id] }));
 }
 
 let skillState = skills().map((s) => ({
@@ -422,7 +423,18 @@ let skillState = skills().map((s) => ({
  * switched off is written as hidden. Called after every change to the list.
  */
 function syncAgentSkills() {
-  try { materializeSkills(AGENT_SKILLS, skillState.filter(s => !s.onlyIn)); } catch (e) { console.warn('skills · could not write the agent skills folder:', e.message); }
+  try {
+    const usable = skillState.filter(s => !s.onlyIn);
+    const external = usable.filter(s => s.id.startsWith('local-') && s.enabled);
+    const catalog = join(store.DATA_DIR, 'agent', 'local-skill-catalog.json');
+    mkdirSync(join(store.DATA_DIR, 'agent'), { recursive: true });
+    writeFileSync(catalog, JSON.stringify(external.map(s => ({ name: s.name, description: s.description, instructions: s.body })), null, 2));
+    materializeSkills(AGENT_SKILLS, [...usable.filter(s => !s.id.startsWith('local-')), ...(external.length ? [{
+      id: 'local-skill-library', name: 'Local skill library', enabled: true,
+      description: 'Find and use the person’s installed skills for coding, research, apps, documents and other tasks.',
+      body: `There are ${external.length} local skills in ${catalog}. Search this JSON catalog for relevant names and descriptions using filesystem search, then read the matching original SKILL.md and follow it. Resolve relative assets from the original skill directory. Read only relevant entries rather than loading the whole catalog. A skill mentioning a tool does not make that tool available: check the current registered tools.`,
+    }] : [])]);
+  } catch (e) { console.warn('skills · could not write the agent skills folder:', e.message); }
 }
 syncAgentSkills();
 
@@ -493,15 +505,28 @@ const WORKSPACES_FILE = join(store.DATA_DIR, 'workspaces.json');
 function loadWorkspaces() {
   try {
     const parsed = JSON.parse(readFileSync(WORKSPACES_FILE, 'utf8'));
-    if (Array.isArray(parsed) && parsed.length) {
-      // An earlier version saved the app's own folder as the first workspace. The first entry keeps its id (chats point at it) and moves to the default folder.
-      if (parsed[0]?.id === 'root' && typeof parsed[0].path === 'string' && insideApp(parsed[0].path)) parsed[0] = { ...parsed[0], aliases: [...new Set([...(parsed[0].aliases ?? []), parsed[0].path])], path: WORKSPACE, name: WORKSPACE_NAME };
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      if (insideApp(parsed[0].path)) {
+        const oldPath = parsed[0].path;
+        parsed[0].path = WORKSPACE;
+        parsed[0].name = WORKSPACE_NAME;
+        parsed[0].aliases = Array.from(new Set([...(parsed[0].aliases ?? []), oldPath]));
+        try {
+          mkdirSync(store.DATA_DIR, { recursive: true });
+          writeFileSync(WORKSPACES_FILE, JSON.stringify(parsed, null, 2));
+        } catch {}
+      }
       return parsed;
     }
   } catch {
     /* first run */
   }
-  return [{ id: 'root', name: WORKSPACE_NAME, path: WORKSPACE }];
+  const initial = [{ id: 'root', name: WORKSPACE_NAME, path: WORKSPACE }];
+  try {
+    mkdirSync(store.DATA_DIR, { recursive: true });
+    writeFileSync(WORKSPACES_FILE, JSON.stringify(initial, null, 2));
+  } catch {}
+  return initial;
 }
 
 let workspaces = loadWorkspaces();
@@ -604,7 +629,8 @@ async function runRemoteTurn({ selection, message, history, images = [], thinkin
 /** One agent turn for a chat, streamed to the caller as the NDJSON frames the chat already renders. */
 async function runAgentTurn({ res, controller, chatId, body, message, workspaceId, images = [] }) {
   const write = frame => { if (!res.writableEnded && !res.destroyed) res.write(`${JSON.stringify(frame)}\n`); };
-  const cwd = chatFolders.get(chatId) ?? (workspaceId ? workspaces.find(w => w.id === workspaceId)?.path : null) ?? WORKSPACE;
+  const parentId = chatId.includes('-side-') ? chatId.split('-side-')[0] : null;
+  const cwd = chatFolders.get(chatId) ?? (parentId ? chatFolders.get(parentId) : null) ?? (workspaceId ? workspaces.find(w => w.id === workspaceId)?.path : null) ?? WORKSPACE;
   let choice, instance = null;
   if (body.remoteModel) {
     choice = { connectionId: String(body.remoteModel.connectionId), modelId: String(body.remoteModel.modelId) };
@@ -651,7 +677,11 @@ async function runTurn({ message, history = [], onFrame, signal, client, workspa
   if(native.hasLive()||nativeModelId){
     let instance;try{instance=native.resolveInstance(nativeModelId??native.state().defaultId);}catch(e){const message=plainNoModel(e.message);onFrame({type:'error',message});return {error:message};}const started=Date.now(),cancel=new AbortController();
     const entry=serving.open({client:client??'Strata chat',endpoint:'/chat/completions',model:instance.apiModelId,instanceId:instance.id,gpuIds:instance.gpus.map(String),cancel:()=>cancel.abort()});
-    try{serving.mark(entry.id,{state:'generating'});const applied=selectSkills(skillState,message,workspaceId);const result=await proxyCompletion({baseUrl:`http://127.0.0.1:${instance.port}/v1`,modelId:instance.apiModelId,authorization:instance.key,message,history,images,extra:{strata_mcp:useTools===true,...(thinkingBudget>0&&String(thinking).toLowerCase()!=='off'?{reasoning_budget_tokens:thinkingBudget}:{}),reasoning_effort:({off:'none',max:'high'}[String(thinking).toLowerCase()]??String(thinking).toLowerCase())},systemPrompt:[SYSTEM_PROMPT,skillInstructions(applied)].filter(Boolean).join('\n\n'),signal:signal?AbortSignal.any([signal,cancel.signal]):cancel.signal,onFrame:frame=>onFrame({...frame,requestId:entry.id,model:instance.label,contextMax:instance.metrics?.engine?.max_context??instance.context,skills:applied.map(s=>s.name)})});serving.mark(entry.id,{...result,usageSource:result.usageSource});serving.finish(entry.id,{tokensOut:result.tokensOut,durationMs:Date.now()-started});return result;}catch(e){serving.finish(entry.id,{durationMs:Date.now()-started,error:e.message});onFrame({type:'error',message:e.message,requestId:entry.id});return {error:e.message};}
+    try{serving.mark(entry.id,{state:'generating'});const applied=selectSkills(skillState,message,workspaceId);
+    const parentId = sessionId && sessionId.includes('-side-') ? sessionId.split('-side-')[0] : null;
+    const cwd = (sessionId ? chatFolders.get(sessionId) : null) ?? (parentId ? chatFolders.get(parentId) : null) ?? (workspaceId ? workspaces.find(w => w.id === workspaceId)?.path : null) ?? WORKSPACE;
+    const wsNotice = cwd ? `Active workspace folder: ${cwd}` : '';
+    const result=await proxyCompletion({baseUrl:`http://127.0.0.1:${instance.port}/v1`,modelId:instance.apiModelId,authorization:instance.key,message,history,images,extra:{strata_mcp:useTools===true,...(thinkingBudget>0&&String(thinking).toLowerCase()!=='off'?{reasoning_budget_tokens:thinkingBudget}:{}),reasoning_effort:({off:'none',max:'high'}[String(thinking).toLowerCase()]??String(thinking).toLowerCase())},systemPrompt:[SYSTEM_PROMPT,wsNotice,skillInstructions(applied)].filter(Boolean).join('\n\n'),signal:signal?AbortSignal.any([signal,cancel.signal]):cancel.signal,onFrame:frame=>onFrame({...frame,requestId:entry.id,model:instance.label,contextMax:instance.metrics?.engine?.max_context??instance.context,skills:applied.map(s=>s.name)})});serving.mark(entry.id,{...result,usageSource:result.usageSource});serving.finish(entry.id,{tokensOut:result.tokensOut,durationMs:Date.now()-started});return result;}catch(e){serving.finish(entry.id,{durationMs:Date.now()-started,error:e.message});onFrame({type:'error',message:e.message,requestId:entry.id});return {error:e.message};}
   }
   runtimeState();
   let instance;
@@ -1791,6 +1821,7 @@ async function api(req, res, path, method, url) {
     catch (e) { return error(res, e.code === 'outside' ? 403 : 400, e.message); }
   }
   if (path === '/api/workspaces' && method === 'GET') {
+    workspaces = loadWorkspaces();
     return json(res, 200, { workspaces });
   }
 
@@ -1805,8 +1836,9 @@ async function api(req, res, path, method, url) {
       return error(res, 400, "That folder doesn't exist.");
     }
     if (!st.isDirectory()) return error(res, 400, "That's a file, not a folder.");
-    if (workspaces.some((w) => w.path === target)) {
-      return error(res, 400, 'That folder is already in your workspaces.');
+    const existing = workspaces.find((w) => w.path.toLowerCase() === target.toLowerCase());
+    if (existing) {
+      return json(res, 200, existing);
     }
     const ws = {
       id: `ws_${Math.random().toString(36).slice(2, 8)}`,
@@ -1833,12 +1865,9 @@ async function api(req, res, path, method, url) {
 
   if (path.startsWith('/api/workspaces/') && method === 'DELETE') {
     const id = path.split('/')[3];
-    if (id === workspaces[0]?.id) {
-      return error(res, 400, 'The first workspace cannot be removed.');
-    }
-    workspaces = workspaces.filter((w) => w.id !== id);
+    workspaces = loadWorkspaces().filter((w) => w.id !== id);
     saveWorkspaces();
-    return json(res, 200, { ok: true });
+    return json(res, 200, { ok: true, workspaces });
   }
 
   // A native folder chooser. Asking someone who finds computers daunting to type

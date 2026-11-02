@@ -321,14 +321,15 @@ export function buildProfile({ local = [], connections = [], gate = true, tools 
     // Its web question names the search service the person chose (a keyed one only when its key is saved), and the person's switch skips the question.
     ...(gate ? [{ insert: [{ id: 'strata-gate', name: GATE_PLUGIN, config: { web: { provider: SEARCH_NAMES[keyed ?? 'builtin'], skipAsk: tools.webWithoutAsking === true } } }] }] : []),
     // Compaction decides from what the model server measured, and its summary requests always fit the window (plugins/strata-context.mjs).
-    { insert: [{ id: 'strata-context', name: CONTEXT_PLUGIN, config: {} }] },
+    { insert: [{ id: 'strata-context', name: CONTEXT_PLUGIN, config: tools.continuity ? { continuity: true } : {} }] },
+    ...(tools.continuity ? [{ id: 'spill-policy', config: { maxInlineTokens: 1536 } }] : []),
     // Helper agents on a model the person names: every model the app can reach is allowed, and the plugin makes the choice forgiving (plugins/strata-models.mjs).
     ...(subagentRoutes.length ? [{ id: 'subagent-model-selection-settings', config: { enabled: true, allowedModels: subagentRoutes.map(r => ({ provider: r.provider, model: r.model })) } }] : []),
     ...(subagentRoutes.length ? [{ insert: [{ id: 'strata-models', name: MODELS_PLUGIN, config: { routes: subagentRoutes } }] }] : []),
     ...(mcp.length || ownRows.length ? [{ insert: [...mcp, ...ownRows] }] : []),
     ...webRows,
     // The reminder tools would be a second scheduler beside the app's Tasks. The tool groups the person switched off in Settings -> Tools are left out.
-    { id: 'preset-standard', name: '@deepseek-ai/dsh-agent-preset', config: standardPreset({ off: tools.off, search: searchOn, skillsDir, compaction }) },
+    { id: 'preset-standard', name: '@deepseek-ai/dsh-agent-preset', config: standardPreset({ off: tools.off, search: searchOn, skillsDir, compaction, continuity: tools.continuity === true }) },
     // Strata names its chats itself; the Harness's own title request would be an extra model call on
     // every first prompt (and, for an API route, an unrequested one).
     { id: 'session-title-llm', disabled: true },
@@ -344,7 +345,7 @@ export function buildProfile({ local = [], connections = [], gate = true, tools 
   const signature = createHash('sha256').update(patch).update(JSON.stringify(Object.entries(env).sort())).digest('hex').slice(0, 16);
   // What the agent is offered (tool groups, web search, tool servers, the person's own tools) decides whether a running agent must be
   // restarted for the next message; the routes are compared separately (a changed context size alone does not restart it).
-  const toolsSignature = createHash('sha256').update(JSON.stringify([mcp, ownRows, webRows, entries.find(e => e.id === 'preset-standard'), env.STRATA_SEARCH_KEY ?? '', mcpEnv])).digest('hex').slice(0, 16);
+  const toolsSignature = createHash('sha256').update(JSON.stringify([mcp, ownRows, webRows, entries.find(e => e.id === 'preset-standard'), env.STRATA_SEARCH_KEY ?? '', mcpEnv, tools.continuity === true])).digest('hex').slice(0, 16);
   return { patch, env, routes, defaultRoute, signature, toolsSignature, shapeTargets, mcpSkipped };
 }
 

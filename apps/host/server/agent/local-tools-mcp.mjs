@@ -1,4 +1,4 @@
-/** Stdio MCP adapter: keep large tool catalogs out of every model prompt. */
+/** Stdio MCP adapter: keep large tool catalogs out of every model prompt while exposing tool names upfront. */
 import { spawn, spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { readFileSync } from 'node:fs';
@@ -22,14 +22,14 @@ createInterface({ input: child.stdout }).on('line', line => {
  if (message.error) wait.reject(new Error(message.error.message)); else wait.resolve(message.result);
 });
 function fail(error) { for (const wait of pending.values()) { clearTimeout(wait.timer); wait.reject(error); } pending.clear(); }
-child.on('error', fail);child.on('exit', () => fail(new Error('Tool server exited')));
+child.on('error', fail); child.on('exit', () => fail(new Error('Tool server exited')));
 let ready;
 async function catalog() {
  ready ??= (async () => {
   await request('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'strata-tool-library', version: '1' } });
   sendChild({ method: 'notifications/initialized' });
-  const all = [];let cursor;
-  do { const page = await request('tools/list', cursor ? { cursor } : {}); all.push(...page.tools); cursor = page.nextCursor; } while(cursor);
+  const all = []; let cursor;
+  do { const page = await request('tools/list', cursor ? { cursor } : {}); all.push(...(page?.tools ?? [])); cursor = page?.nextCursor; } while(cursor);
   return all;
  })();
  return ready;
@@ -43,18 +43,42 @@ createInterface({ input: process.stdin }).on('line', async line => {
   let answer;
   if (message.method === 'initialize') answer = { protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'strata-' + serverName, version: '1' } };
   else if (message.method === 'ping') answer = {};
-  else if (message.method === 'tools/list') answer = { tools: [
-   { name: 'find_tools', description: `Search ${serverName} tools and read their input schemas before calling them.`, inputSchema: { type: 'object', properties: { query: { type: 'string' }, offset: { type: 'integer', minimum: 0 } }, required: ['query'] } },
-   { name: 'run_tool', description: `Run a ${serverName} tool using the exact name and arguments from find_tools.`, inputSchema: { type: 'object', properties: { name: { type: 'string' }, arguments: { type: 'object' } }, required: ['name', 'arguments'] } }
-  ] };
-  else if (message.method === 'tools/call') {
+  else if (message.method === 'tools/list') {
+   const tools = await catalog();
+   const toolNames = tools.map(t => t.name);
+   const toolSummary = tools.map(t => t.description ? `${t.name}: ${t.description.split('\n')[0].slice(0, 80)}` : t.name).join('; ');
+   answer = { tools: [
+    {
+     name: 'find_tools',
+     description: `Search ${serverName} tools and read their full input schemas before calling them. Available ${serverName} tools: [${toolSummary}]`,
+     inputSchema: { type: 'object', properties: { query: { type: 'string', description: `Tool name or search query for ${serverName}` }, offset: { type: 'integer', minimum: 0 } }, required: ['query'] }
+    },
+    {
+     name: 'run_tool',
+     description: `Run a ${serverName} tool using the exact name and arguments. Available ${serverName} tools: [${toolSummary}]`,
+     inputSchema: {
+      type: 'object',
+      properties: {
+       name: { type: 'string', description: `The exact name of the tool to run on ${serverName}`, ...(toolNames.length ? { enum: toolNames } : {}) },
+       arguments: { type: 'object', description: 'Arguments object for the tool' }
+      },
+      required: ['name']
+     }
+    }
+   ] };
+  } else if (message.method === 'tools/call') {
    const args = message.params.arguments ?? {}, tools = await catalog();
    if (message.params.name === 'find_tools') {
-    const words = String(args.query ?? '').toLowerCase().split(/\s+/).filter(Boolean);
-    const matches = tools.filter(t => words.every(w => (t.name + ' ' + t.description).toLowerCase().includes(w)));
-    const offset = Math.max(0, Math.floor(Number(args.offset) || 0)); answer = result({ total: matches.length, tools: matches.slice(offset, offset + 5), nextOffset: offset + 5 < matches.length ? offset + 5 : null });
-   } else if (message.params.name === 'run_tool' && tools.some(t => t.name === args.name)) answer = await request('tools/call', { name: args.name, arguments: args.arguments ?? {} });
-   else throw new Error('Unknown tool. Use find_tools first.');
+    const q = String(args.query ?? '').trim().toLowerCase();
+    const words = q === '*' || q === 'all' ? [] : q.split(/\s+/).filter(Boolean);
+    const matches = tools.filter(t => words.length === 0 || words.every(w => (t.name + ' ' + (t.description || '')).toLowerCase().includes(w)));
+    const offset = Math.max(0, Math.floor(Number(args.offset) || 0));
+    answer = result({ total: matches.length, tools: matches.slice(offset, offset + 5), nextOffset: offset + 5 < matches.length ? offset + 5 : null });
+   } else if (message.params.name === 'run_tool' && tools.some(t => t.name === args.name)) {
+    answer = await request('tools/call', { name: args.name, arguments: args.arguments ?? {} });
+   } else {
+    throw new Error(`Unknown tool "${args.name}". Available tools on ${serverName}: ${tools.map(t => t.name).join(', ')}`);
+   }
   } else { output({ id: message.id, error: { code: -32601, message: 'Method not supported' } }); return; }
   output({ id: message.id, result: answer });
  } catch (error) { output({ id: message.id, result: { ...result(error.message), isError: true } }); }

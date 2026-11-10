@@ -3,7 +3,7 @@ import { bindingFor, bindingEqual, eventBinding, type Binding } from './shortcut
 import type { IconName } from '../components/ui';
 import type { Route } from './router';
 import {
-  exportConversation, getState, go, newSession, pushToast,
+  exportConversation, getState, go, newSession, pushToast, startNewChat,
   selectSession,
   restartEngine, setFocus, setNavOpen, setPalette, setShortcuts, setTheme,
   toggleFocus, toggleRail, unloadModel,
@@ -39,7 +39,7 @@ export const DESTINATIONS: { route: Route; label: string; icon: IconName; keywor
   { route: 'settings', label: 'Settings', icon: 'settings', keywords: 'preferences theme appearance text size', key: '8' },
 ];
 export const APP_COMMANDS: AppCommand[] = [
-  { id: 'new', label: 'New chat', hint: 'Start a new conversation; keep this one', group: 'Session', key: 'n', icon: 'new-chat', slash: ['new'], run: () => { const s = newSession(); go('chat', s.id); } },
+  { id: 'new', label: 'New chat', hint: 'Start a new conversation; keep this one', group: 'Session', key: 'n', icon: 'new-chat', slash: ['new'], run: () => startNewChat() },
   { id: 'palette', label: 'Command palette', group: 'Session', key: 'k', icon: 'search', palette: false, run: () => setPalette(!getState().paletteOpen) },
   { id: 'sidebar', label: 'Show or hide sidebar', group: 'Session', key: 'b', icon: 'panel', run: () => window.innerWidth < 1280 ? setNavOpen(!getState().navOpen) : toggleRail() },
   { id: 'settings', label: 'Settings', group: 'Session', key: ',', icon: 'settings', palette: false, run: () => go('settings') },

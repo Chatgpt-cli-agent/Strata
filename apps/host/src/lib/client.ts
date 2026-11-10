@@ -48,6 +48,24 @@ export interface StreamEvent {
 export function onEvent(handler: (e: StreamEvent) => void, onStatus?: (s: 'live' | 'offline') => void) {
   let source: EventSource;
   let seenAt = Date.now();
+  /** Long harness work can stall the host briefly; avoid crying offline every transient SSE blip. */
+  const SILENCE_MS = 30_000;
+  const OFFLINE_DEBOUNCE_MS = 5_000;
+  let offlineTimer: ReturnType<typeof setTimeout> | null = null;
+  const markLive = () => {
+    if (offlineTimer) {
+      clearTimeout(offlineTimer);
+      offlineTimer = null;
+    }
+    onStatus?.('live');
+  };
+  const markOffline = () => {
+    if (offlineTimer) return;
+    offlineTimer = setTimeout(() => {
+      offlineTimer = null;
+      onStatus?.('offline');
+    }, OFFLINE_DEBOUNCE_MS);
+  };
   const names = ['engine', 'monitor', 'models', 'native', 'image-models', 'runtime', 'providers', 'serving', 'download', 'log', 'setup', 'skills', 'task', 'goal', 'timeskip', 'plan', 'queue', 'chats'];
   const connect = () => {
     source?.close();
@@ -60,8 +78,11 @@ export function onEvent(handler: (e: StreamEvent) => void, onStatus?: (s: 'live'
         catch { /* Ignore malformed frames without losing valid state. */ }
       }) as EventListener);
     }
-    source.addEventListener('open', () => { seenAt = Date.now(); onStatus?.('live'); });
-    source.addEventListener('error', () => onStatus?.('offline'));
+    source.addEventListener('open', () => { seenAt = Date.now(); markLive(); });
+    // EventSource fires `error` while reconnecting; only treat a closed socket as offline.
+    source.addEventListener('error', () => {
+      if (source.readyState === EventSource.CLOSED) markOffline();
+    });
     source.addEventListener('message', ev => {
       seenAt = Date.now();
       try { handler({ event: 'message', data: JSON.parse((ev as MessageEvent).data) as Record<string, unknown> }); }
@@ -72,11 +93,16 @@ export function onEvent(handler: (e: StreamEvent) => void, onStatus?: (s: 'live'
   // The host sends monitor frames each second. Some proxies leave a dead SSE
   // socket open, so silence must also invalidate readings and retry the stream.
   const watchdog = setInterval(() => {
-    if (Date.now() - seenAt <= 10000) return;
-    onStatus?.('offline');
+    if (Date.now() - seenAt <= SILENCE_MS) return;
+    markOffline();
     connect();
+    seenAt = Date.now();
   }, 5000);
-  return () => { clearInterval(watchdog); source.close(); };
+  return () => {
+    if (offlineTimer) clearTimeout(offlineTimer);
+    clearInterval(watchdog);
+    source.close();
+  };
 }
 
 /** POST a JSON body and consume an NDJSON/SSE-ish stream of JSON frames. */

@@ -471,7 +471,16 @@ export function ChatScreen() {
                 return;
             }
             updateDraft('');
-            void queueMessage(session.id, out).then(ok => { if (ok) { clearQuotes(session.id); return; } if (!ok) { if (plan === 'goal') { clearQuotes(session.id); parkMessage(session.id, out); return; } updateDraft(text); pushToast('info', tr('The assistant is still answering'), tr('Send your message when it has finished.')); } }, e => { updateDraft(text); pushToast('error', tr('The message was not queued'), plainFailureText(e instanceof Error ? e.message : String(e)).message); });
+            void queueMessage(session.id, out).then(ok => {
+              if (ok) {
+                clearQuotes(session.id);
+                pushToast('success', tr('Noted'), tr('Noted. I heard you — I will steer with this before the next step.'));
+                return;
+              }
+              if (plan === 'goal') { clearQuotes(session.id); parkMessage(session.id, out); return; }
+              updateDraft(text);
+              pushToast('info', tr('The assistant is still answering'), tr('Send your message when it has finished.'));
+            }, e => { updateDraft(text); pushToast('error', tr('The message was not queued'), plainFailureText(e instanceof Error ? e.message : String(e)).message); });
             return;
         }
         const timeSkip = timeSkipPrompt(text);
@@ -567,6 +576,7 @@ function useSlashCommands(clear: () => void, setDraft: (value: string) => void):
     return [
         { id: 'time-skip', label: '/time-skip', hint: 'Try a change on a copy, check it, and keep it only if it is better', icon: 'branch', run: () => setDraft('/time-skip ') },
         { id: 'btw', label: '/btw', hint: 'Ask a side question by the way; the answer does not enter this chat', icon: 'chat', run: () => setDraft('/btw ') },
+        { id: 'compact', label: '/compact', hint: 'Summarize older messages now to free context', icon: 'refresh', run: () => setDraft('/compact') },
         { id: 'goal', label: '/goal', hint: 'Set a goal and let the assistant keep working until it is done', icon: 'bolt', run: () => setDraft('/goal ') },
         { id: 'plan', label: '/plan', hint: 'Have the assistant write a plan first; nothing runs until you approve it', icon: 'check', run: () => setDraft('/plan ') },
         { id: 'research', label: '/research', hint: 'Search the web, read the pages and answer with sources', icon: 'search', run: () => setDraft('/research ') },

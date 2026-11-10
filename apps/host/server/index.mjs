@@ -662,8 +662,8 @@ async function runAgentTurn({ res, controller, chatId, body, message, workspaceI
     const planLine = /^\/plan(?:\s+([\s\S]*))?$/i.exec(message.trim());
     const researchLine = /^\/research(?:\s+([\s\S]*))?$/i.exec(message.trim());
     // "/compact" summarises the older messages of this chat now (it used to go to the model as text, which answered it as a question).
-    const compactLine = /^\/compact\s*$/i.test(message.trim());
-    const turnOptions = { chatId, message, workspacePath: cwd, choice, images, mode: typeof body.mode === 'string' ? body.mode : null, thinking: typeof body.thinking === 'string' ? body.thinking : null, thinkingBudget: Number.isFinite(body.thinkingBudget) ? body.thinkingBudget : 0, history: Array.isArray(body.history) ? body.history : [], onFrame: write, signal: controller.signal };
+    const compactLine = /^\/compa[ck]t\s*$/i.test(message.trim());
+    const turnOptions = { chatId, message, workspacePath: cwd, choice, images, mode: typeof body.mode === 'string' ? body.mode : null, thinking: typeof body.thinking === 'string' ? body.thinking : null, thinkingBudget: Number.isFinite(body.thinkingBudget) ? body.thinkingBudget : 0, history: Array.isArray(body.history) ? body.history : [], carryAgentHistory: body.carryAgentHistory !== false, onFrame: write, signal: controller.signal };
     const result = typeof body.planId === 'string' && body.message === '/plan start' ? await agent.planGoal({ ...turnOptions, planId: body.planId })
       : compactLine ? await agent.compactCommand(turnOptions)
       : researchLine ? await agent.researchCommand({ ...turnOptions, line: researchLine[1] ?? '' })
@@ -2018,6 +2018,21 @@ async function api(req, res, path, method, url) {
     const body = await readBody(req);
     try { return json(res, 200, agent.cancelQueued({ chatId: String(body.sessionId ?? ''), id: String(body.id ?? '') })); }
     catch (e) { return error(res, e.code === 'queue-gone' ? 409 : 400, e.message); }
+  }
+  if (path === '/api/chat/compact' && method === 'POST') {
+    const body = await readBody(req);
+    const chatId = String(body.sessionId ?? body.chatId ?? '');
+    if (!chatId) return error(res, 400, 'sessionId is required');
+    try { return json(res, 200, await agent.compactNow(chatId)); }
+    catch (e) { return error(res, 400, e.message); }
+  }
+  if (path === '/api/context/recover' && method === 'POST') {
+    const body = await readBody(req);
+    const chatId = String(body.sessionId ?? body.chatId ?? '');
+    if (!chatId) return error(res, 400, 'sessionId is required');
+    const history = Array.isArray(body.history) ? body.history : [];
+    try { return json(res, 200, await agent.recoverNow(chatId, { history })); }
+    catch (e) { return error(res, 400, e.message); }
   }
   if (path === '/api/agent/tools' && method === 'GET') return json(res, 200, agentTools.view());
   if (path === '/api/agent/tools' && method === 'PUT') {

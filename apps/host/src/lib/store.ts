@@ -1374,11 +1374,12 @@ async function syncChatsFromHost() {
   sessionWriter.enable();
 }
 
-export function newSession(): Session {
+export function newSession(opts: { carryToAgent?: boolean } = {}): Session {
   const session: Session = {
     id: uid('s'),
     title: 'New conversation',
     defaultTitle: true,
+    carryToAgent: opts.carryToAgent ?? false,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     messages: [],
@@ -1434,7 +1435,7 @@ export function createPreviewExamples() {
 
 /** "Continue in a new chat" on a task: a new chat whose first message is the task's findings, what it did and its files (src/lib/task-handover.ts). */
 export function continueTaskInNewChat(task: Task) {
-  const session = newSession();
+  const session = newSession({ carryToAgent: false });
   go('chat', session.id);
   void sendMessage(taskHandoverMessage(task), { title: taskHandoverTitle(task), markdown: true });
 }
@@ -1741,6 +1742,16 @@ function dropFailedExchange(sessionId: string) {
   patchSession(sessionId, s => ({ ...s, messages: s.messages.slice(0, -2) }));
 }
 
+/** One automatic compact+retry per session when the window overflows (no button — matches Cursor-style recovery). */
+const autoContextRecoveryInFlight = new Set<string>();
+function scheduleAutoContextRecovery(sessionId: string) {
+  if (autoContextRecoveryInFlight.has(sessionId)) return;
+  autoContextRecoveryInFlight.add(sessionId);
+  setTimeout(() => {
+    void summarizeAndContinue().finally(() => autoContextRecoveryInFlight.delete(sessionId));
+  }, 250);
+}
+
 /**
  * The error card of a conversation that no longer fits the model's window: summarise the older messages (the same as typing /compact), then
  * ask the assistant to answer. The refused question is already in the assistant's conversation (it is the newest message, and a summary keeps
@@ -1773,7 +1784,7 @@ export async function sendOversized(mode: 'file' | 'preview') {
 
 /** A new, empty chat, opened. */
 export function startNewChat() {
-  const session = newSession();
+  const session = newSession({ carryToAgent: false });
   go('chat', session.id);
 }
 
@@ -1798,6 +1809,7 @@ export function branchFrom(messageId: string): string | null {
     id: uid('s'),
     title: `${source.title} (branch)`,
     defaultTitle: false,
+    carryToAgent: true,
     createdAt: now,
     updatedAt: now,
     messages: source.messages.slice(0, at + 1).map((m) => ({ ...m, id: uid('m') })),
@@ -1930,7 +1942,7 @@ export function answerChatTool(sessionId: string, messageId: string, toolId: str
 export function continueChatInNewChat(sessionId: string) {
   const old = state.sessions.find(s => s.id === sessionId);
   if (!old) return;
-  const session = newSession();
+  const session = newSession({ carryToAgent: false });
   go('chat', session.id);
   void sendMessage(chatHandoverMessage(old), { title: chatHandoverTitle(old), markdown: true });
 }
@@ -2022,7 +2034,10 @@ export async function sendMessage(text: string, options: { fromLoop?: boolean; g
     // Typed while the assistant works: behind a running goal it waits in the queue; otherwise there is nothing to do but wait.
     const waiting = state.activeSession, line = text.trim();
     if (waiting && line && !options.planId && !options.goalAction) {
-      try { if (!(await queueMessage(waiting, line))) pushToast('info', 'The assistant is still answering', 'Send your message when it has finished.'); }
+      try {
+        if (await queueMessage(waiting, line)) pushToast('success', tr('Noted'), tr('Noted. I heard you — I will steer with this before the next step.'));
+        else pushToast('info', 'The assistant is still answering', 'Send your message when it has finished.');
+      }
       catch (e) { pushToast('error', 'The message was not queued', plainFailureText(e instanceof Error ? e.message : String(e)).message); }
     }
     return;
@@ -2078,7 +2093,9 @@ export async function sendMessage(text: string, options: { fromLoop?: boolean; g
 
      The context meter was reading the same empty array, which is why it sat at
      ~350 tokens however long the conversation grew. */
-  const prior = (state.sessions.find((s) => s.id === sessionId)?.messages ?? [])
+  const chatRow = state.sessions.find((s) => s.id === sessionId);
+  const carryAgentHistory = chatRow?.carryToAgent !== false;
+  const prior = (chatRow?.messages ?? [])
     .filter(m => !m.timeSkipId && !m.local)
     .filter((m) => m.role === 'user' || m.role === 'assistant')
     .filter((m) => m.content.trim())
@@ -2138,6 +2155,7 @@ export async function sendMessage(text: string, options: { fromLoop?: boolean; g
         sessionId,
         ...(planStart ? { planId: planStart } : {}),
         ...(resume ? { goalAction: 'resume' } : planStart ? {} : { message: options.shown ? body : body }),
+        carryAgentHistory,
         history:await Promise.all(prior.map(async(m,index)=>{const included=pictureCheck.ok?(m.photos??[]).filter((_,p)=>imageSlots.has(`${index}:${p}`)):[];const omitted=(m.photos??[]).filter(p=>!included.includes(p));const text=m.content+(omitted.length?`\n[Earlier pictures: ${omitted.map(p=>p.name).join(', ')}. Their pixels are outside this model's image context; ask to reattach them if needed.]`:'');return {role:m.role,content:included.length?[{type:'text',text},...await Promise.all(included.map(async photo=>({type:'image_url',image_url:{url:(await photoData(photo)).url}})))]:text};})),
         model: state.library?.loaded ?? state.library?.current ?? null,
         remoteModel: state.remoteModel,
@@ -2269,6 +2287,9 @@ export async function sendMessage(text: string, options: { fromLoop?: boolean; g
           // A sentence the host wrote for the person (it carries its catalog key) is shown in their language as it is; anything else is made plain here.
           const said = typeof frame.key === 'string' ? tr(frame.key, Array.isArray(frame.values) ? frame.values : undefined) : plainFailure(String(frame.message ?? 'Engine error')).message;
           patchAssistant((m) => ({ ...m, drafts: undefined, error: said, streaming: false, ...(typeof frame.code === 'string' ? { errorCode: frame.code } : {}), ...(typeof frame.details === 'string' && frame.details ? { errorDetail: frame.details } : {}) }));
+          const code = typeof frame.code === 'string' ? frame.code : '';
+          const contextOverflow = code === 'CONTEXT_WINDOW_EXCEEDED' || /context window|too long|exceeds the context/i.test(String(frame.message ?? frame.details ?? ''));
+          if (contextOverflow) scheduleAutoContextRecovery(sessionId);
         } else if (type === 'done') {
           clearStatus(sessionId);
           workFinished(state.doneSound, Number(frame.durationMs ?? performance.now() - started));

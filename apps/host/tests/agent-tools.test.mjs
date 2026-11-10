@@ -95,7 +95,7 @@ test('the profile loads the gate by path, sizes helper agents to the engine slot
   const entries = JSON.parse(p.patch.split('\n').slice(1).join('\n'));
   assert.deepEqual(entries.find(e => e.insert)?.insert, [{ id: 'strata-gate', name: GATE_PLUGIN, config: { web: { provider: 'DuckDuckGo, or Bing when DuckDuckGo is busy', skipAsk: false } } }]);
   assert.ok(existsSync(GATE_PLUGIN));
-  assert.equal(entries.find(e => e.id === 'subagent').config.maxActiveSubagents, 4, 'at least the 4 helpers; more only with more slots');
+  assert.equal(entries.find(e => e.id === 'subagent').config.maxActiveSubagents, 6, 'at least MIN_LOCAL_HELPERS; more when engine has more slots');
   assert.equal(entries.find(e => e.id === 'preset-standard').config.plugins.some(x => x.id === 'tool-schedule'), false);
   assert.ok(!p.patch.includes('sekret-key-123'));
   const api = buildProfile({ local: [], connections: [{ id: 'c1', name: 'C', baseUrl: 'https://x/v1', protocol: 'openai-chat', models: [{ id: 'm' }] }] });

@@ -46,9 +46,10 @@ test('queued messages: the first waits for the current step, the next ones "afte
   const items = P.queueOf('c');
   assert.deepEqual(items.map(q => q.id), ['q1', 'q2']);
   const p = P.readPlan(plan('running', [step('s1', 'A', 'done'), step('s2', 'B', 'running')]));
-  assert.deepEqual(P.queuedWhen(items[0], 0, p), { id: 'Queued — sends when step {0} finishes', args: [2] });
-  assert.deepEqual(P.queuedWhen(items[1], 1, p), { id: 'Queued — sends after that' });
-  assert.deepEqual(P.queuedWhen({ id: 'e', text: 'x', deliverAt: 'end' }, 0, null), { id: 'Queued — sends when the goal finishes' });
+  assert.deepEqual(P.queuedWhen(items[0], 0, p), { id: 'Noted — sends after plan step {0}', args: [2] });
+  assert.deepEqual(P.queuedWhen(items[1], 1, p), { id: 'Noted — sends after the message before it' });
+  assert.deepEqual(P.queuedWhen({ id: 'e', text: 'x', deliverAt: 'end' }, 0, null), { id: 'Noted — sends when the goal finishes' });
+  assert.deepEqual(P.queuedWhen({ id: 's', text: 'x', deliverAt: 'steer' }, 0, null), { id: 'Noted — steers the assistant before the next step' });
   P.applyQueueFrame('c', []);
   assert.deepEqual(P.queueOf('c'), []);
 });

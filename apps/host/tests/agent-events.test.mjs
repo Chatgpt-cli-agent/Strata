@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { buildProfile, outputBudget, routeFor, ASSUMED_API_CONTEXT } from '../server/agent/profile.mjs';
 import { agentEnvironment, redact } from '../server/agent/harness-runtime.mjs';
 import { TurnProjector, presentTool, toolScope, toolVerb, friendlyFailure } from '../server/agent/events.mjs';
-import { withEarlierConversation } from '../server/agent/agent-bridge.mjs';
+import { withEarlierConversation, handoffBrief } from '../server/agent/agent-bridge.mjs';
 
 const local = [{ id: 'inst-1', label: 'Qwen', baseUrl: 'http://127.0.0.1:8095/v1', modelId: 'qwen', context: 32768, key: 'local-secret-key-1' }];
 const conn = { id: 'c0nn-1234-abcd', name: 'Cloud', baseUrl: 'https://api.example.com/v1', protocol: 'openai-chat', apiKey: 'sk-live-ABCDEFGH', models: [{ id: 'm1', name: 'M1', contextMax: 64000 }, { id: 'm2', name: 'M2', contextMax: null }] };
@@ -126,6 +126,15 @@ test('tool scopes and previews', () => {
   assert.equal(toolScope('write'), 'write'); assert.equal(toolScope('grep'), 'read'); assert.equal(toolScope('web_fetch'), 'connected');
   assert.equal(presentTool({ callId: 'x', name: 'write', args: { file_path: 'a.txt' } }).preview, 'a.txt');
   assert.equal(friendlyFailure({ message: 'No API key' }), 'The model rejected the credentials. Check the connection in Settings.');
+});
+
+test('handoff brief drops compaction banner noise', () => {
+  const brief = handoffBrief([
+    { role: 'assistant', content: 'Older messages were summarized to make room. The chat was 90% full.Real answer.' },
+    { role: 'user', content: 'continue' },
+  ]);
+  assert.match(brief, /continue/);
+  assert.doesNotMatch(brief, /90% full/);
 });
 
 test('a chat that existed before the agent carries a bounded summary into its first agent turn', () => {

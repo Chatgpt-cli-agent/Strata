@@ -49,7 +49,16 @@ export const DEFAULT_API_HELPERS = 8;
  * serves its requests one after the other (its queue is unbounded), so the extra helpers show as waiting for their turn instead
  * of being refused.
  */
-export const MIN_LOCAL_HELPERS = 4;
+/** Local concurrent subagents (Harness pool). RE batches often plan 5 workers; 4 caused recurring ACTIVATION_LIMIT_REACHED. Override: STRATA_MAX_ACTIVE_SUBAGENTS. */
+export const MIN_LOCAL_HELPERS = 6;
+
+/** Concurrent background subagents allowed for this profile build. */
+export function subagentCap(engineSlots = 0) {
+  const env = Number(process.env.STRATA_MAX_ACTIVE_SUBAGENTS);
+  if (Number.isFinite(env) && env >= 1) return Math.floor(env);
+  return engineSlots > 0 ? Math.max(engineSlots, MIN_LOCAL_HELPERS) : DEFAULT_API_HELPERS;
+}
+
 /** The preset for a chat's stored mode. Anything unknown (older values such as `auto`) gets the strictest ask-first mode. */
 export const modeOf = value => (Object.hasOwn(MODE_PRESETS, value) ? value : DEFAULT_MODE);
 
@@ -316,7 +325,7 @@ export function buildProfile({ local = [], connections = [], gate = true, tools 
     { id: 'llm-pi-ai', name: '@deepseek-ai/dsh-llm-pi-ai', config: { providers } },
     // The chat modes. Replacing the table also drops the Harness's own three presets: a chat is always in one of ours.
     { id: 'permission', config: { presets: Object.fromEntries(Object.values(MODE_PRESETS).map(({ key, sandbox, approval, name, description }) => [key, { sandbox, approval, name, description }])), defaultPreset: MODE_PRESETS[DEFAULT_MODE].key } },
-    { id: 'subagent', config: { maxActiveSubagents: slots > 0 ? Math.max(slots, MIN_LOCAL_HELPERS) : DEFAULT_API_HELPERS } },
+    { id: 'subagent', config: { maxActiveSubagents: subagentCap(slots) } },
     // Manual asks before a change runs, so the person sees one Approve/Deny card and nothing has happened yet.
     // Its web question names the search service the person chose (a keyed one only when its key is saved), and the person's switch skips the question.
     ...(gate ? [{ insert: [{ id: 'strata-gate', name: GATE_PLUGIN, config: { web: { provider: SEARCH_NAMES[keyed ?? 'builtin'], skipAsk: tools.webWithoutAsking === true } } }] }] : []),

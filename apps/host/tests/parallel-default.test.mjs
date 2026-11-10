@@ -83,7 +83,7 @@ test('the retry configuration has no slots and no batch-mtp', () => {
 test('helper agents: at least as many as the engine slots, and extra ones wait for their turn instead of being refused', () => {
   const profile = slots => buildProfile({ local: [{ id: 'a', baseUrl: 'http://127.0.0.1:1/v1', modelId: 'm', slots }] });
   const cap = slots => JSON.parse(profile(slots).patch.split('\n').slice(1).join('\n')).find(e => e.id === 'subagent').config.maxActiveSubagents;
-  assert.deepEqual([cap(1), cap(2), cap(4), cap(6)], [4, 4, 4, 6]);
+  assert.deepEqual([cap(1), cap(2), cap(4), cap(6)], [6, 6, 6, 6]);
   assert.notEqual(profile(6).signature, profile(2).signature, 'a changed helper limit restarts the agent when idle');
 });
 

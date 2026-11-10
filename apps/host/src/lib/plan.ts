@@ -11,7 +11,7 @@ export type PlanState = 'proposed' | 'approved' | 'rejected' | 'running' | 'paus
 export type StepState = 'pending' | 'running' | 'done' | 'failed' | 'skipped';
 export interface PlanStep { id: string; text: string; detail?: string; summary?: string; state: StepState }
 export interface Plan { id: string; title: string; source: 'plan' | 'goal'; state: PlanState; steps: PlanStep[]; /** A plain sentence (an interface string) when the app stopped the planning turn early. */ caution?: string }
-export interface QueuedMessage { id: string; text: string; deliverAt: 'step' | 'end' }
+export interface QueuedMessage { id: string; text: string; deliverAt: 'step' | 'end' | 'steer' }
 
 const PLAN_STATES = ['proposed', 'approved', 'rejected', 'running', 'paused', 'done', 'stopped'];
 const STEP_STATES = ['pending', 'running', 'done', 'failed', 'skipped'];
@@ -42,7 +42,7 @@ export function readQueue(raw: unknown): QueuedMessage[] {
     if (!q || typeof q !== 'object') return [];
     const r = q as Record<string, unknown>;
     return typeof r.id === 'string' && r.id && typeof r.text === 'string' && r.text
-      ? [{ id: r.id, text: r.text, deliverAt: r.deliverAt === 'end' ? 'end' : 'step' }] : [];
+      ? [{ id: r.id, text: r.text, deliverAt: r.deliverAt === 'end' ? 'end' : r.deliverAt === 'steer' ? 'steer' : 'step' }] : [];
   });
 }
 
@@ -142,10 +142,17 @@ export function currentStep(plan: Plan | null): number {
 
 /** The words under a queued message: when it will be sent. The first one goes out after the current step, the next ones after that. */
 export function queuedWhen(item: QueuedMessage, index: number, plan: Plan | null): { id: string; args?: unknown[] } {
-  if (item.deliverAt === 'end') return { id: 'Queued — sends when the goal finishes' };
-  if (index > 0) return { id: 'Queued — sends after that' };
+  if (item.deliverAt === 'steer') {
+    return index > 0
+      ? { id: 'Noted — queued after the message before it' }
+      : { id: 'Noted — steers the assistant before the next step' };
+  }
+  if (item.deliverAt === 'end') return { id: 'Noted — sends when the goal finishes' };
+  if (index > 0) return { id: 'Noted — sends after the message before it' };
   const step = currentStep(plan);
-  return step > 0 ? { id: 'Queued — sends when step {0} finishes', args: [step] } : { id: 'Queued — sends when the goal finishes' };
+  return step > 0
+    ? { id: 'Noted — sends after plan step {0}', args: [step] }
+    : { id: 'Noted — sends when the goal finishes' };
 }
 
 export const stepsDone = (plan: Plan) => plan.steps.filter(s => s.state === 'done').length;

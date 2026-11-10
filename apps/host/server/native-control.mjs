@@ -209,7 +209,7 @@ export function createNativeControl({directory,requests=()=>[],changed=()=>{},sp
      const finalResult=engineStep?job.result:result;
      if(note)return {...finalResult,summary:note};
      /* A context the person picked is kept with a marker (ui_context_chosen), so only an old saved 32K, which has no marker, is read as the old default. */
-     if(args.contextChosen===true){try{const id=(result.install.family??args.family??'qwen')==='qwen'?String(args.model).toLowerCase():`${args.family}-${String(args.model).toLowerCase()}`;rememberSetting(record(id).path,'ui_context_chosen',true);}catch{/* the install itself is done */}}
+     if(args.contextChosen===true){try{const id=catalogModelId(snapshot.catalog,result.install?.family??args.family??'qwen',args.model);rememberSetting(record(id).path,'ui_context_chosen',true);}catch{/* the install itself is done */}}
      if(args.loadAfter){const family=result.install?.family??args.family??'qwen';const model=catalogModelId(snapshot.catalog,family,args.model);return loadEngine(job,{model,multiple:!!args.multiple,resourceProfile:args.resourceProfile,vision:args.loadVision,...(args.visionUnavailable===true?{visionUnavailable:true}:{}),...(typeof args.drafting==='string'?{values:{drafting:args.drafting}}:{})});}
      return finalResult;
     }

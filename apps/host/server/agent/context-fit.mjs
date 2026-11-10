@@ -73,6 +73,7 @@ export const FIT_TEXT = Object.freeze({
   noChatYet: 'There is nothing to summarize yet. This chat has not started a conversation with the assistant.',
   compactFailed: 'The older messages could not be summarized right now. Try again in a moment, or start a new chat.',
   compactBusy: 'This chat is still working. Stop it or wait for it to finish, then try again.',
+  contextHandoff: 'Summarizing did not free enough room ({0}% full). The agent started a **fresh working session** in the same folder. Continue from the brief below — your chat transcript is unchanged.',
 });
 export const fill = (template, values = []) => String(template).replace(/\{(\d+)\}/g, (_, i) => String(values[Number(i)] ?? ''));
 
